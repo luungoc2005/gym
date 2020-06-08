@@ -4,8 +4,7 @@ import datetime as dt
 import os
 
 from stable_baselines.common import make_vec_env
-from stable_baselines.common.policies import MlpLstmPolicy, MlpLnLstmPolicy, MlpPolicy
-# from stable_baselines.sac.policies import MlpPolicy, LnMlpPolicy
+from stable_baselines.sac.policies import MlpPolicy, LnMlpPolicy
 from stable_baselines.common.vec_env import DummyVecEnv, VecNormalize, SubprocVecEnv
 from stable_baselines.common.callbacks import BaseCallback
 from stable_baselines import PPO2, SAC
@@ -45,12 +44,12 @@ ENV_ARGS = {
     "end_date": "2020-5-24",
     "lookback_window": 21,
 }
-N_ENVS = 4
-DO_TRAIN = True
+N_ENVS = 1
+DO_TRAIN = False
 
 if __name__ == "__main__":
     if DO_TRAIN:
-        env = SubprocVecEnv([lambda: ZiplineEnv(**ENV_ARGS, max_steps=256)] * N_ENVS)
+        env = DummyVecEnv([lambda: ZiplineEnv(**ENV_ARGS, max_steps=256)] * N_ENVS)
         # env = VecNormalize(env, norm_obs=True, norm_reward=True,
         #     clip_obs=10.)
 
@@ -63,19 +62,24 @@ if __name__ == "__main__":
         #     tensorboard_log="./.tb_zipline_env/",
         # )
 
-        model = PPO2(
-            MlpPolicy, 
+        # model = PPO2(
+        #     MlpPolicy, 
+        #     env,
+        #     verbose=1, 
+        #     n_steps=256,
+        #     nminibatches=N_ENVS,
+        #     tensorboard_log="./.tb_zipline_env/",
+        # )
+        model = SAC(
+            LnMlpPolicy, 
             env,
-            verbose=1, 
-            n_steps=256,
-            nminibatches=N_ENVS,
+            verbose=1,
             tensorboard_log="./.tb_zipline_env/",
         )
-
         checkpoint_callback = CheckpointCallback(
             save_freq=10000, 
             save_path='./.checkpoints/',
-            name_prefix='ppo2_zipline_sortino',
+            name_prefix='sac_zipline_sortino',
         )
 
         model.learn(total_timesteps=1000000, callback=checkpoint_callback)
@@ -105,6 +109,7 @@ if __name__ == "__main__":
         if i == 256:
             print("--- Live trade starts at")
             print(rewards[0])
-        env.env_method("render", indices=[0])
-        if (any(done)):
+        # env.env_method("render", indices=[0])
+        env.render()
+        if done:
             exit()

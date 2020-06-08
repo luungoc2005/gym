@@ -40,3 +40,8 @@ vizdoom.ini
 
 # tensorboard logs
 /.tb_*
+
+# checkpoints
+/.checkpoints
+*.pickle
+*.zip
