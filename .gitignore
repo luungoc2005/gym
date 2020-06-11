@@ -37,3 +37,7 @@ tutorial/*.html
 # PyCharm project files
 .idea
 vizdoom.ini
+
+chromedriver
+.tb_*
+.checkpoints
