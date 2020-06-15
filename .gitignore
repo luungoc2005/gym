@@ -41,3 +41,5 @@ vizdoom.ini
 chromedriver
 .tb_*
 .checkpoints
+
+*.zip

@@ -2,6 +2,7 @@ import numpy as np
 import os
 import gym
 from gym import error, spaces
+from collections import deque
 
 from io import BytesIO
 from PIL import Image
@@ -11,6 +12,7 @@ import cv2
 from selenium import webdriver
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
@@ -19,8 +21,8 @@ import time
 class ChromeDinoEnv(gym.Env):
 
     def __init__(self,
-            screen_width: int=80,
-            screen_height: int=80,
+            screen_width: int=120,
+            screen_height: int=120,
             chromedriver_path: str="chromedriver"
         ):
         self.screen_width = screen_width
@@ -31,17 +33,30 @@ class ChromeDinoEnv(gym.Env):
         self.observation_space = spaces.Box(
             low=0, 
             high=255, 
-            shape=(self.screen_width, self.screen_height, 1), 
+            shape=(self.screen_width, self.screen_height, 4), 
             dtype=np.uint8
         )
 
         _chrome_options = webdriver.ChromeOptions()
         _chrome_options.add_argument("--mute-audio")
+        # _chrome_options.add_argument("--disable-gpu")
+        # _chrome_options.add_argument("--headless")
 
         self._driver = webdriver.Chrome(
             executable_path=self.chromedriver_path,
             chrome_options=_chrome_options
         )
+        self.current_key = None
+        self.state_queue = deque(maxlen=4)
+
+        self.actions_map = [
+            Keys.ARROW_RIGHT, # do nothing
+            Keys.ARROW_UP, # jump
+            Keys.ARROW_DOWN # duck
+        ]
+        action_chains = ActionChains(self._driver)
+        self.keydown_actions = [action_chains.key_down(item) for item in self.actions_map]
+        self.keyup_actions = [action_chains.key_up(item) for item in self.actions_map]
 
     def reset(self):
         self._driver.get('chrome://dino')
@@ -69,15 +84,22 @@ class ChromeDinoEnv(gym.Env):
 
     def _next_observation(self):
         image = cv2.cvtColor(self._get_image(), cv2.COLOR_BGR2GRAY)
+        image = image[:500, :480] # cropping
         image = cv2.resize(image, (self.screen_width, self.screen_height))
-        image = np.reshape(image, (self.screen_width, self.screen_height, 1))
+
         # Thresholding
-        # image[image > .5] = 1
-        # image[image < .5] = 0
+        # image[image > 127] = 255
+        # image[image < 127] = 0
+        self.state_queue.append(image)
+
+        if len(self.state_queue) < 4:
+            return np.stack([image] * 4, axis=-1)
+        else:
+            return np.stack(self.state_queue, axis=-1)
 
         return image
 
-    def _get_reward(self):
+    def _get_score(self):
         score_str = ''.join(
             self._driver.execute_script("return Runner.instance_.distanceMeter.digits")
         )
@@ -86,25 +108,30 @@ class ChromeDinoEnv(gym.Env):
     def _get_done(self):
         return not self._driver.execute_script("return Runner.instance_.playing")
 
-    def step(self, action):
+    def step(self, action: int):
         # perform action
-        if action == 0: # do nothing
-            pass
-        elif action == 1: # jump
-            self._driver.find_element_by_tag_name("body").send_keys(Keys.ARROW_UP)
-        else: # duck
-            self._driver.find_element_by_tag_name("body").send_keys(Keys.ARROW_DOWN)
-        
+        # if self.current_key != action:
+        #     if self.current_key is not None:
+        #             self.keyup_actions[self.current_key].perform()
+
+        #     self.current_key = action
+
+        #     self.keydown_actions[self.current_key].perform()
+        self._driver.find_element_by_tag_name("body") \
+            .send_keys(self.actions_map[action])
+
         obs = self._next_observation()
-        reward = self._get_reward()
+
         done = self._get_done()
+        reward = .1 if not done else -1
 
-        time.sleep(.18)
+        # self._driver.implicitly_wait(.4)
+        time.sleep(.015)
 
-        return obs, reward, done, {}
+        return obs, reward, done, {"score": self._get_score()}
 
-    def render(self, mode='human'):
-        img = self._get_image()
+    def render(self, mode: str='human'):
+        img = cv2.cvtColor(self._get_image(), cv2.COLOR_BGR2RGB)
         if mode == 'rgb_array':
             return img
         elif mode == 'human':
