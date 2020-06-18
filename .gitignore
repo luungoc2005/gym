@@ -45,3 +45,4 @@ vizdoom.ini
 /.checkpoints
 *.pickle
 *.zip
+*.pkl
