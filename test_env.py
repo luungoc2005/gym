@@ -38,7 +38,7 @@ if __name__ == '__main__':
             tensorboard_log="./.tb_chromedino_env/",
         )
         model.learn(
-            total_timesteps=2000000, 
+            total_timesteps=5000000, 
             callback=[checkpoint_callback]
         )
         model.save(save_path)
@@ -56,6 +56,9 @@ if __name__ == '__main__':
         obs, rewards, dones, info = env.step(action)
         # env.env_method("render", indices=[0])
         img = env.render(mode='rgb_array')
+
+        if any(done):
+            break
 
     imageio.mimsave('dino.gif', [np.array(img) for i, img in enumerate(images[:-500])], fps=15)
 

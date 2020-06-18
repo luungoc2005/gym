@@ -123,7 +123,7 @@ class ChromeDinoEnv(gym.Env):
         obs = self._next_observation()
 
         done = self._get_done()
-        reward = .1 if not done else -1
+        reward = .01 if not done else -1
 
         # self._driver.implicitly_wait(.4)
         time.sleep(.015)
