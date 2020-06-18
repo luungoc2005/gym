@@ -46,3 +46,4 @@ chromedriver
 /.checkpoints
 *.pickle
 *.zip
+*.pkl

@@ -43,13 +43,15 @@ ENV_ARGS = {
     "start_date": "2018-12-1",
     "end_date": "2020-5-24",
     "lookback_window": 21,
+    "do_normalize": False
 }
+TRAIN_STEPS = 280
 N_ENVS = 1
 DO_TRAIN = False
 
 if __name__ == "__main__":
     if DO_TRAIN:
-        env = DummyVecEnv([lambda: ZiplineEnv(**ENV_ARGS, max_steps=256)] * N_ENVS)
+        env = DummyVecEnv([lambda: ZiplineEnv(**ENV_ARGS, max_steps=TRAIN_STEPS)] * N_ENVS)
         # env = VecNormalize(env, norm_obs=True, norm_reward=True,
         #     clip_obs=10.)
 
@@ -106,7 +108,7 @@ if __name__ == "__main__":
     for i in range(1000):
         action, _states = model.predict(obs)
         obs, rewards, done, info = env.step(action)
-        if i == 256:
+        if i == TRAIN_STEPS:
             print("--- Live trade starts at")
             print(rewards[0])
         # env.env_method("render", indices=[0])

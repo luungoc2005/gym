@@ -34,7 +34,9 @@ class ZiplineEnv(gym.Env):
         env_output="env_result.pickle",
         lookback_window=30,
         max_steps=256,
+        do_normalize=True,
         do_record=False,
+        communication_mode="redis",
     ):
         self.tickers = tickers
         self.data_frequency = data_frequency
@@ -46,8 +48,12 @@ class ZiplineEnv(gym.Env):
         self.env_output = env_output
         self.lookback_window = lookback_window
         self.max_steps = max_steps
+        self.do_normalize = do_normalize
         self.do_record = do_record
         self.env_id = uuid.uuid4().hex
+        self.communication_mode = communication_mode
+
+        assert communication_mode in ["redis", "pipe"]
 
         self.rewards_history = []
         self.actions_history = []
@@ -76,40 +82,47 @@ class ZiplineEnv(gym.Env):
         env_dict = os.environ
         env_dict["ENV_ID"] = self.env_id
 
+        if self.communication_mode == "redis":
+            env_dict["COMM_MODE"] = "redis"
+        else:
+            env_dict["COMM_MODE"] = "pipe"
+
         self.p_zipline = subprocess.Popen([
-            ZIPLINE_PYTHON_PATH, "run",
-            "-f", ALGO_PATH,
-            "--data-frequency", self.data_frequency,
-            "--capital-base", self.capital_base,
-            "--trading-calendar", self.trading_calendar,
-            "-b", self.bundle_name,
-            "-s", self.start_date,
-            "-e", self.end_date,
-            "-o", self.env_output,
-        ], env=env_dict)
+                ZIPLINE_PYTHON_PATH, "run",
+                "-f", ALGO_PATH,
+                "--data-frequency", self.data_frequency,
+                "--capital-base", self.capital_base,
+                "--trading-calendar", self.trading_calendar,
+                "-b", self.bundle_name,
+                "-s", self.start_date,
+                "-e", self.end_date,
+                "-o", self.env_output,
+            ],
+            env=env_dict,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            bufsize=1
+        )
 
         finished = False
         while not finished:
-            for message in pubsub.listen():
-                try:
-                    # print(message)
-                    data = json.loads(message["data"].decode('utf-8'))
-                    if data["env_id"] == self.env_id and data["message"] == "algo_init":
-                        redis_host.publish(PUBSUB_CHANNEL, json.dumps({
-                            "env_id": self.env_id,
-                            "message": "set_options",
-                            "data": {
-                                "tickers": self.tickers,
-                                "lookback_window": self.lookback_window,
-                                "start_date": self.start_date,
-                                "end_date": self.end_date,
-                                "do_record": self.do_record,
-                            },
-                        }))
-                        finished = True
-                        break
-                except:
-                    pass
+            for data in self._get_message():
+                if data["env_id"] == self.env_id and data["message"] == "algo_init":
+                    self._send_message({
+                        "env_id": self.env_id,
+                        "message": "set_options",
+                        "data": {
+                            "tickers": self.tickers,
+                            "lookback_window": self.lookback_window,
+                            "start_date": self.start_date,
+                            "end_date": self.end_date,
+                            "do_normalize": self.do_normalize,
+                            "do_record": self.do_record,
+                        },
+                    })
+                    finished = True
+                    break
 
         self.current_step = 0
         self.positions_value = 0
@@ -122,44 +135,56 @@ class ZiplineEnv(gym.Env):
 
         return self._next_observation()
 
+    def _send_message(self, data: object):
+        if self.communication_mode == "redis":
+            redis_host.publish(PUBSUB_CHANNEL, json.dumps(data))
+        else:
+            self.p_zipline.stdin.write((json.dumps(data) + '\n').encode('utf-8'))
+            self.p_zipline.stdin.flush()
+
+    def _get_message(self):
+        while True:
+            message = pubsub.get_message() if self.communication_mode == "redis" \
+                else self.p_zipline.stdout.readline()
+
+            try:
+                if self.communication_mode == "redis":
+                    data = json.loads(message["data"].decode('utf-8'))
+                else:
+                    data = json.loads(message.decode('utf-8'))
+                yield data
+            except GeneratorExit:
+                return
+            except:
+                pass
 
     def _next_observation(self):
-        redis_host.publish(PUBSUB_CHANNEL, json.dumps({
+        self._send_message({
             "env_id": self.env_id,
             "message": "get_state",
-        }))
+        })
         while True:
-            for message in pubsub.listen():
-                try:
-                    # print(message)
-                    data = json.loads(message["data"].decode('utf-8'))
-                    if data["env_id"] == self.env_id and data["message"] == "algo_state":
-                        return data["data"]
-                except:
-                    pass
+            for data in self._get_message():
+                if data["env_id"] == self.env_id and data["message"] == "algo_state":
+                    return data["data"]
 
     def _get_reward(self):
-        redis_host.publish(PUBSUB_CHANNEL, json.dumps({
+        self._send_message({
             "env_id": self.env_id,
             "message": "get_reward",
-        }))
+        })
         while True:
-            for message in pubsub.listen():
-                try:
-                    # print(message)
-                    data = json.loads(message["data"].decode('utf-8'))
-                    if data["env_id"] == self.env_id and data["message"] == "algo_reward":
-                        return data["data"]
-                except:
-                    pass
+            for data in self._get_message():
+                if data["env_id"] == self.env_id and data["message"] == "algo_reward":
+                    return data["data"]
 
 
     def step(self, action):
-        redis_host.publish(PUBSUB_CHANNEL, json.dumps({
+        self._send_message({
             "env_id": self.env_id,
             "message": "set_action",
             "data": action.tolist()
-        }))
+        })
 
         reward_raw = self._get_reward()
         obs = self._next_observation()
