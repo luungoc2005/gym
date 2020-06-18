@@ -42,6 +42,7 @@ vizdoom.ini
 /.tb_*
 
 # checkpoints
+chromedriver
 /.checkpoints
 *.pickle
 *.zip

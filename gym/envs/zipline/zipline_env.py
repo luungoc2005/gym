@@ -12,8 +12,8 @@ import redis
 import json
 import uuid
 
-ZIPLINE_PYTHON_PATH = "/Users/luungoc2005/miniconda3/envs/trading-bot-base/bin/zipline"
-ALGO_PATH = "/Users/luungoc2005/Documents/Samples/pipeline-live/zipline_algos/gym_algo.py"
+ZIPLINE_PYTHON_PATH = "/home/luungoc2005/miniconda3/envs/zipline/bin/zipline"
+ALGO_PATH = "/media/luungoc2005/Data/Projects/Samples/pipeline-live/zipline_algos/gym_algo.py"
 
 PUBSUB_CHANNEL = "zipline-env"
 redis_host = redis.Redis(host='localhost', port=6379, db=0)
