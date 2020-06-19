@@ -45,7 +45,7 @@ ENV_ARGS = {
     "end_date": "2020-5-24",
     "lookback_window": 21,
     "do_normalize": False,
-    "communication_mode": "redis"
+    "communication_mode": "pipe"
 }
 TRAIN_STEPS = 280
 N_ENVS = 4

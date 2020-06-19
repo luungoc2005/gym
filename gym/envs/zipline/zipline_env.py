@@ -101,7 +101,6 @@ class ZiplineEnv(gym.Env):
             env=env_dict,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
             bufsize=1
         )
 
@@ -152,6 +151,9 @@ class ZiplineEnv(gym.Env):
                     data = json.loads(message["data"].decode('utf-8'))
                 else:
                     data = json.loads(message.decode('utf-8'))
+                # print("Gym:")
+                # print(data)
+                # print("---")
                 yield data
             except GeneratorExit:
                 return
