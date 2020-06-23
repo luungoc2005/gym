@@ -69,7 +69,7 @@ class ZiplineEnv(gym.Env):
             dtype=np.float16,
         )
         self.observation_space = spaces.Box(
-            low=0, high=1000, # how to do high value??? 
+            low=0, high=1, # how to do high value??? 
             # (OHLC + current portfolio ratio) * days * (positions + cash)
             shape=(len(self.tickers) + 1, self.lookback_window, 5),
             dtype=np.float16
@@ -159,8 +159,8 @@ class ZiplineEnv(gym.Env):
                 if self.communication_mode == "redis":
                     data = json.loads(message["data"].decode('utf-8'))
                 else:
-                    data = base64.b64decode(
-                        pickle.loads(message)
+                    data = pickle.loads(
+                        base64.b64decode(message)
                     )
                     # data = json.loads(message.decode('utf-8'))
                 # print("Gym:")

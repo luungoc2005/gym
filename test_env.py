@@ -39,21 +39,32 @@ class CheckpointCallback(BaseCallback):
 
 SAVE_PATH = "ppo2_zipline_sortino_lookback_21"
 STATS_PATH = "ppo2_zipline_sortino_lookback_21_norm.pkl"
-
+ALL_TICKERS = ['U11', 'BS6', 'A17U', 'G13', 'O39', 'Z74', 'C61U', 'C31', 'C38U', 'D05']
 ENV_ARGS = {
     "start_date": "2018-12-1",
     "end_date": "2020-5-24",
     "lookback_window": 21,
-    "do_normalize": False,
+    "do_normalize": True,
     "communication_mode": "pipe"
 }
 TRAIN_STEPS = 280
 N_ENVS = 4
+NUM_TICKERS = 6
 DO_TRAIN = True
 
 if __name__ == "__main__":
     if DO_TRAIN:
-        env = SubprocVecEnv([lambda: ZiplineEnv(**ENV_ARGS, max_steps=TRAIN_STEPS)] * N_ENVS)
+        def create_zipline_env():
+            import random
+            selected_tickers = random.choices(ALL_TICKERS, k=NUM_TICKERS)
+            random.shuffle(selected_tickers)
+            return ZiplineEnv(
+                **ENV_ARGS, 
+                tickers=selected_tickers, 
+                max_steps=TRAIN_STEPS
+            )
+
+        env = SubprocVecEnv([create_zipline_env] * N_ENVS)
         env = VecNormalize(env, norm_obs=True, norm_reward=True,
             clip_obs=10.)
 
@@ -78,12 +89,13 @@ if __name__ == "__main__":
         env.save(STATS_PATH)
 
     # evaluate
-    model = PPO2.load(SAVE_PATH)
-
     env = DummyVecEnv([lambda: ZiplineEnv(**ENV_ARGS, 
         max_steps=512, 
-        do_record=True
+        do_record=True,
+        tickers=ALL_TICKERS[:NUM_TICKERS]
     )] * N_ENVS)
+
+    model = PPO2.load(SAVE_PATH)
 
     if os.path.isfile(STATS_PATH):
         env = VecNormalize.load(STATS_PATH, env)
