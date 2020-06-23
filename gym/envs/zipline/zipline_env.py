@@ -10,6 +10,9 @@ from gym.utils import seeding
 import subprocess
 import redis
 import json
+import pickle
+# import msgpack
+import base64
 import uuid
 
 ZIPLINE_PYTHON_PATH = "/home/luungoc2005/miniconda3/envs/zipline/bin/zipline"
@@ -26,7 +29,7 @@ class ZiplineEnv(gym.Env):
         self,
         tickers=['U11', 'BS6', 'A17U', 'G13', 'O39', 'Z74', 'C61U', 'C31', 'C38U', 'D05'],
         data_frequency="daily",
-        capital_base="1000",
+        capital_base="2000",
         trading_calendar="XSES",
         bundle_name="sgx_stocks",
         start_date="2018-12-1",
@@ -138,7 +141,13 @@ class ZiplineEnv(gym.Env):
         if self.communication_mode == "redis":
             redis_host.publish(PUBSUB_CHANNEL, json.dumps(data))
         else:
-            self.p_zipline.stdin.write((json.dumps(data) + '\n').encode('utf-8'))
+            # self.p_zipline.stdin.write((json.dumps(data) + '\n').encode('utf-8'))
+            self.p_zipline.stdin.write(
+                base64.b64encode(
+                    pickle.dumps(data, pickle.HIGHEST_PROTOCOL)
+                )
+            )
+            self.p_zipline.stdin.write(b'\n')
             self.p_zipline.stdin.flush()
 
     def _get_message(self):
@@ -150,7 +159,10 @@ class ZiplineEnv(gym.Env):
                 if self.communication_mode == "redis":
                     data = json.loads(message["data"].decode('utf-8'))
                 else:
-                    data = json.loads(message.decode('utf-8'))
+                    data = base64.b64decode(
+                        pickle.loads(message)
+                    )
+                    # data = json.loads(message.decode('utf-8'))
                 # print("Gym:")
                 # print(data)
                 # print("---")
