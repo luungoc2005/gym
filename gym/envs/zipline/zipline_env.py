@@ -66,13 +66,13 @@ class ZiplineEnv(gym.Env):
             low=0, 
             high=1,
             shape=(len(self.tickers) + 1,),
-            dtype=np.float16,
+            dtype=np.float32,
         )
         self.observation_space = spaces.Box(
-            low=0, high=1, # how to do high value??? 
+            low=-1, high=1, # how to do high value??? 
             # (OHLC + current portfolio ratio) * days * (positions + cash)
             shape=(len(self.tickers) + 1, self.lookback_window, 5),
-            dtype=np.float16
+            dtype=np.float32
         )
         self.p_zipline = None
         self.fig = None
@@ -84,6 +84,7 @@ class ZiplineEnv(gym.Env):
 
         env_dict = os.environ
         env_dict["ENV_ID"] = self.env_id
+        env_dict["PYTHONWARNINGS"] = "ignore"
 
         if self.communication_mode == "redis":
             env_dict["COMM_MODE"] = "redis"
@@ -116,7 +117,7 @@ class ZiplineEnv(gym.Env):
                         "message": "set_options",
                         "data": {
                             "tickers": self.tickers,
-                            "lookback_window": self.lookback_window,
+                            "lookback_window": self.lookback_window + 1,
                             "start_date": self.start_date,
                             "end_date": self.end_date,
                             "do_normalize": self.do_normalize,
@@ -135,7 +136,7 @@ class ZiplineEnv(gym.Env):
         self.obs_history = []
         self.current_date = ""
 
-        return self._next_observation()
+        return self._process_observation(self._next_observation())
 
     def _send_message(self, data: object):
         if self.communication_mode == "redis":
@@ -177,6 +178,7 @@ class ZiplineEnv(gym.Env):
             "env_id": self.env_id,
             "message": "get_state",
         })
+        _obs = None
         while True:
             for data in self._get_message():
                 if data["env_id"] == self.env_id and data["message"] == "algo_state":
@@ -192,6 +194,13 @@ class ZiplineEnv(gym.Env):
                 if data["env_id"] == self.env_id and data["message"] == "algo_reward":
                     return data["data"]
 
+    def _process_observation(self, observation, eps=1e-8):
+        # normalizing by taking difference
+        _main = observation[:,1:]
+        _denominator = observation[:,:-1] + eps
+        _ret = (_main - _denominator) / _denominator
+        _ret[np.isnan(_ret)] = eps
+        return _ret
 
     def step(self, action):
         self._send_message({
@@ -222,7 +231,16 @@ class ZiplineEnv(gym.Env):
         self.rewards_history.append(reward_raw)
         self.obs_history.append(obs)
 
-        return obs, reward, self.current_step == self.max_steps, {}
+        obs = self._process_observation(obs)
+
+        # early stopping?
+        done = self.current_step == self.max_steps
+        if not done:
+            if (float(self.profit) / float(self.capital_base)) < -.3:
+                # lost more than 30% of capital base
+                done = True
+
+        return obs, reward, done, {}
 
     def render(self, mode='text', window_size=40):
         import matplotlib

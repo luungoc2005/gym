@@ -51,6 +51,7 @@ TRAIN_STEPS = 280
 N_ENVS = 4
 NUM_TICKERS = 6
 DO_TRAIN = True
+USE_VEC_NORMALIZE = True
 
 if __name__ == "__main__":
     if DO_TRAIN:
@@ -65,8 +66,10 @@ if __name__ == "__main__":
             )
 
         env = SubprocVecEnv([create_zipline_env] * N_ENVS)
-        env = VecNormalize(env, norm_obs=True, norm_reward=True,
-            clip_obs=10.)
+
+        if USE_VEC_NORMALIZE:
+            env = VecNormalize(env, norm_obs=True, norm_reward=True,
+                clip_obs=10.)
 
         model = PPO2(
             MlpPolicy, 
@@ -75,18 +78,23 @@ if __name__ == "__main__":
             n_steps=256,
             nminibatches=N_ENVS,
             tensorboard_log="./.tb_zipline_env/",
+            policy_kwargs={
+                "net_arch": [128, 64]
+            },
         )
 
         checkpoint_callback = CheckpointCallback(
             save_freq=int(1e6), 
             save_path='./.checkpoints/',
             name_prefix=SAVE_PATH,
-            vec_norm=env
+            vec_norm=env if USE_VEC_NORMALIZE else None
         )
 
         model.learn(total_timesteps=int(10e6), callback=checkpoint_callback)
         model.save(SAVE_PATH)
-        env.save(STATS_PATH)
+
+        if USE_VEC_NORMALIZE:
+            env.save(STATS_PATH)
 
     # evaluate
     env = DummyVecEnv([lambda: ZiplineEnv(**ENV_ARGS, 
@@ -97,7 +105,7 @@ if __name__ == "__main__":
 
     model = PPO2.load(SAVE_PATH)
 
-    if os.path.isfile(STATS_PATH):
+    if os.path.isfile(STATS_PATH) and USE_VEC_NORMALIZE:
         env = VecNormalize.load(STATS_PATH, env)
         env.training = False
         env.norm_reward = False
