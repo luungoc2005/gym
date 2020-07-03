@@ -37,13 +37,13 @@ class CheckpointCallback(BaseCallback):
                 print("Saving model checkpoint to {}".format(path))
         return True
 
-SAVE_PATH = "ppo_zipline_sortino_lookback_1"
-STATS_PATH = "ppo_zipline_sortino_lookback_1_norm.pkl"
+SAVE_PATH = "a2c_zipline_sortino_lookback_21"
+STATS_PATH = "a2c_zipline_sortino_lookback_21_norm.pkl"
 ALL_TICKERS = ['U11', 'BS6', 'A17U', 'G13', 'O39', 'Z74', 'C61U', 'C31', 'C38U', 'D05']
 ENV_ARGS = {
     "start_date": "2018-12-1",
     "end_date": "2020-5-24",
-    "lookback_window": 1,
+    "lookback_window": 21,
     "do_normalize": None,
     "max_leverage": None,
     "communication_mode": "pipe"
@@ -51,7 +51,7 @@ ENV_ARGS = {
 TRAIN_STEPS = 280
 N_ENVS = 4
 NUM_TICKERS = 6
-DO_TRAIN = True
+DO_TRAIN = False
 USE_VEC_NORMALIZE = False
 
 if __name__ == "__main__":
@@ -73,16 +73,16 @@ if __name__ == "__main__":
             env = VecNormalize(env, norm_obs=True, norm_reward=True,
                 clip_obs=10.)
 
-        model = PPO2(
-            MlpLnLstmPolicy, 
+        model = A2C(
+            MlpPolicy, 
             env,
             verbose=1, 
             n_steps=256,
-            nminibatches=N_ENVS,
+            # nminibatches=N_ENVS,
             tensorboard_log="./.tb_zipline_env/",
-            # policy_kwargs={
-            #     "net_arch": [128, 128]
-            # },
+            policy_kwargs={
+                "net_arch": [128, 64]
+            },
         )
 
         checkpoint_callback = CheckpointCallback(
@@ -102,11 +102,10 @@ if __name__ == "__main__":
     env = DummyVecEnv([lambda: ZiplineEnv(**ENV_ARGS, 
         max_steps=512, 
         do_record=True,
-        tickers=ALL_TICKERS[:NUM_TICKERS],
-        early_stopping=False,
+        tickers=ALL_TICKERS[:NUM_TICKERS]
     )] * N_ENVS)
 
-    model = PPO2.load(SAVE_PATH)
+    model = A2C.load(SAVE_PATH)
 
     if os.path.isfile(STATS_PATH) and USE_VEC_NORMALIZE:
         env = VecNormalize.load(STATS_PATH, env)

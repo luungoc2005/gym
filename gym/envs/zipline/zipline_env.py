@@ -29,7 +29,7 @@ class ZiplineEnv(gym.Env):
         self,
         tickers=['U11', 'BS6', 'A17U', 'G13', 'O39', 'Z74', 'C61U', 'C31', 'C38U', 'D05'],
         data_frequency="daily",
-        capital_base="2000",
+        capital_base="2500",
         trading_calendar="XSES",
         bundle_name="sgx_stocks",
         start_date="2018-12-1",
@@ -40,6 +40,8 @@ class ZiplineEnv(gym.Env):
         do_normalize=True,
         do_record=False,
         communication_mode="redis",
+        early_stopping=True,
+        max_leverage=None,
     ):
         self.tickers = tickers
         self.data_frequency = data_frequency
@@ -55,6 +57,8 @@ class ZiplineEnv(gym.Env):
         self.do_record = do_record
         self.env_id = uuid.uuid4().hex
         self.communication_mode = communication_mode
+        self.early_stopping = early_stopping
+        self.max_leverage = max_leverage
 
         assert communication_mode in ["redis", "pipe"]
 
@@ -65,7 +69,9 @@ class ZiplineEnv(gym.Env):
         self.action_space = spaces.Box(
             low=0, 
             high=1,
-            shape=(len(self.tickers) + 1,),
+            shape=(len(self.tickers) + 1, 1) \
+                if self.do_normalize \
+                else (len(self.tickers) * 3,),
             dtype=np.float32,
         )
         self.observation_space = spaces.Box(
@@ -203,43 +209,70 @@ class ZiplineEnv(gym.Env):
         return _ret
 
     def step(self, action):
-        self._send_message({
-            "env_id": self.env_id,
-            "message": "set_action",
-            "data": action.tolist()
-        })
+        # transform action
+        if self.do_normalize:
+            action_weights = action.tolist()
+        else:
+            action = action.reshape(len(self.tickers), 3)
+            max_actions = np.argmax(action, axis=-1)
+            action_weights = [0] * len(self.tickers)
+            for ticker_ix, selected_action in enumerate(max_actions):
+                if selected_action == 0: # sit
+                    action_weights[ticker_ix] = 0
+                elif selected_action == 1: # buy
+                    action_weights[ticker_ix] = action[ticker_ix][selected_action]
+                else: # sell
+                    action_weights[ticker_ix] = -action[ticker_ix][selected_action]
 
-        reward_raw = self._get_reward()
-        obs = self._next_observation()
+        # print(action_weights)
+        try:
+            self._send_message({
+                "env_id": self.env_id,
+                "message": "set_action",
+                "data": action_weights
+            })
 
-        reward = reward_raw["reward"]
-        self.current_date = reward_raw["date"]
-        self.positions_value = reward_raw["positions_value"]
-        self.portfolio_value = reward_raw["portfolio_value"]
-        self.profit = reward_raw["profit"]
+            reward_raw = self._get_reward()
+            obs = self._next_observation()
 
-        # done = False
-        # if self.p_zipline is not None:
-        #     try:
-        #         self.p_zipline.wait(timeout=300)
-        #     except subprocess.TimeoutExpired:
-        #         if self.p_zipline.returncode is None:
-        #             done = True
+            reward = reward_raw["reward"]
+            self.current_date = reward_raw["date"]
+            self.positions_value = reward_raw["positions_value"]
+            self.portfolio_value = reward_raw["portfolio_value"]
+            self.profit = reward_raw["profit"]
+            # print(reward_raw)
 
-        self.current_step += 1
-        self.actions_history.append(action)
-        self.rewards_history.append(reward_raw)
-        self.obs_history.append(obs)
+            # done = False
+            # if self.p_zipline is not None:
+            #     try:
+            #         self.p_zipline.wait(timeout=300)
+            #     except subprocess.TimeoutExpired:
+            #         if self.p_zipline.returncode is None:
+            #             done = True
 
-        obs = self._process_observation(obs)
+            self.current_step += 1
+            self.actions_history.append(action_weights)
+            self.rewards_history.append(reward_raw)
+            self.obs_history.append(obs)
 
-        # early stopping?
-        done = self.current_step == self.max_steps
-        if not done:
-            if (float(self.profit) / float(self.capital_base)) < -.3:
-                # lost more than 30% of capital base
+            obs = self._process_observation(obs)
+
+            # early stopping?
+            done = self.current_step == self.max_steps
+            if self.max_leverage is not None and reward_raw["leverage"] > self.max_leverage:
+                reward = -1
                 done = True
-
+            if not done and self.early_stopping:
+                if (float(self.profit) / float(self.capital_base)) < -.3:
+                    # lost more than 30% of capital base
+                    done = True
+        except:
+            import warnings
+            warnings.warn(f"Early exit for ENV {self.env_id} - Exception encountered.")
+            obs = self.obs_history[-1]
+            reward = -1
+            done = True
+            
         return obs, reward, done, {}
 
     def render(self, mode='text', window_size=40):
@@ -390,4 +423,5 @@ class ZiplineEnv(gym.Env):
         print('Positions value: {}'.format(self.positions_value))
         print('Portfolio value: {}'.format(self.portfolio_value))
         print('Profit: {}'.format(self.profit))
+        print('Action: {}'.format(self.actions_history[-1]))
         print('---')
